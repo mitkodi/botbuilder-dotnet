@@ -25,8 +25,10 @@ namespace Microsoft.BotBuilderSamples
 
             AddDialog(new TextPrompt(nameof(TextPrompt)));
             AddDialog(new BookingDialog());
+            AddDialog(My.Bot.Builder.Localization.ExtendedCulture.CreateConfirmPrompt("test", My.Bot.Builder.Localization.ExtendedCulture.Bulgarian));
             AddDialog(new WaterfallDialog(nameof(WaterfallDialog), new WaterfallStep[]
             {
+                TestStep,
                 IntroStepAsync,
                 ActStepAsync,
                 FinalStepAsync,
@@ -34,6 +36,11 @@ namespace Microsoft.BotBuilderSamples
 
             // The initial child Dialog to run.
             InitialDialogId = nameof(WaterfallDialog);
+        }
+
+        private async Task<DialogTurnResult> TestStep(WaterfallStepContext stepContext, CancellationToken cancellationToken)
+        {
+            return await stepContext.PromptAsync("test", new PromptOptions { Prompt = MessageFactory.Text("What can I help you with today?") }, cancellationToken);
         }
 
         private async Task<DialogTurnResult> IntroStepAsync(WaterfallStepContext stepContext, CancellationToken cancellationToken)

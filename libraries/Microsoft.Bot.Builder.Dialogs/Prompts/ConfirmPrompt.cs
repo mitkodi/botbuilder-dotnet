@@ -3,10 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Bot.Builder.Dialogs.Choices;
 using Microsoft.Bot.Schema;
+using Microsoft.Recognizers.Text;
 using Microsoft.Recognizers.Text.Choice;
 using static Microsoft.Recognizers.Text.Culture;
 
@@ -93,9 +95,14 @@ namespace Microsoft.Bot.Builder.Dialogs
             IMessageActivity prompt;
             var channelId = turnContext.Activity.ChannelId;
             var culture = DetermineCulture(turnContext.Activity);
-            var defaults = ChoiceDefaults[culture];
-            var choiceOptions = ChoiceOptions ?? defaults.Item3;
-            var confirmChoices = ConfirmChoices ?? Tuple.Create(defaults.Item1, defaults.Item2);
+            var choiceOptions = ChoiceOptions;
+            var confirmChoices = ConfirmChoices;
+            if (ChoiceDefaults.TryGetValue(culture, out var defaults))
+            {
+                choiceOptions = choiceOptions ?? defaults.Item3;
+                confirmChoices = confirmChoices ?? Tuple.Create(defaults.Item1, defaults.Item2);
+            }
+
             var choices = new List<Choice> { confirmChoices.Item1, confirmChoices.Item2 };
             if (isRetry && options.RetryPrompt != null)
             {
@@ -123,8 +130,9 @@ namespace Microsoft.Bot.Builder.Dialogs
                 // Recognize utterance
                 var message = turnContext.Activity.AsMessageActivity();
                 var culture = DetermineCulture(turnContext.Activity);
-                var results = ChoiceRecognizer.RecognizeBoolean(message.Text, culture);
-                if (results.Count > 0)
+                List<Recognizers.Text.ModelResult> results;
+                if (SupportedCultures.Any(cult => cult.CultureCode == culture) &&
+                    (results = ChoiceRecognizer.RecognizeBoolean(message.Text, culture)).Count() > 0)
                 {
                     var first = results[0];
                     if (bool.TryParse(first.Resolution["value"].ToString(), out var value))
@@ -136,21 +144,44 @@ namespace Microsoft.Bot.Builder.Dialogs
                 else
                 {
                     // First check whether the prompt was sent to the user with numbers - if it was we should recognize numbers
-                    var defaults = ChoiceDefaults[culture];
-                    var choiceOptions = ChoiceOptions ?? defaults.Item3;
+                    //var defaults = ChoiceDefaults[culture];
+                    //var choiceOptions = ChoiceOptions ?? defaults.Item3;
 
-                    // This logic reflects the fact that IncludeNumbers is nullable and True is the default set in Inline style
-                    if (!choiceOptions.IncludeNumbers.HasValue || choiceOptions.IncludeNumbers.Value)
+                    //// This logic reflects the fact that IncludeNumbers is nullable and True is the default set in Inline style
+                    //if (!choiceOptions.IncludeNumbers.HasValue || choiceOptions.IncludeNumbers.Value)
+                    //{
+                    //    // The text may be a number in which case we will interpret that as a choice.
+                    //    var confirmChoices = ConfirmChoices ?? Tuple.Create(defaults.Item1, defaults.Item2);
+                    //    var choices = new List<Choice> { confirmChoices.Item1, confirmChoices.Item2 };
+                    //    var secondAttemptResults = ChoiceRecognizers.RecognizeChoices(message.Text, choices);
+                    //    if (secondAttemptResults.Count > 0)
+                    //    {
+                    //        result.Succeeded = true;
+                    //        result.Value = secondAttemptResults[0].Resolution.Index == 0;
+                    //    }
+                    //}
+
+                    var choiceOptions = ChoiceOptions;
+                    var confirmChoices = ConfirmChoices;
+                    if (ChoiceDefaults.TryGetValue(culture, out var defaults))
                     {
-                        // The text may be a number in which case we will interpret that as a choice.
-                        var confirmChoices = ConfirmChoices ?? Tuple.Create(defaults.Item1, defaults.Item2);
-                        var choices = new List<Choice> { confirmChoices.Item1, confirmChoices.Item2 };
-                        var secondAttemptResults = ChoiceRecognizers.RecognizeChoices(message.Text, choices);
-                        if (secondAttemptResults.Count > 0)
-                        {
-                            result.Succeeded = true;
-                            result.Value = secondAttemptResults[0].Resolution.Index == 0;
-                        }
+                        choiceOptions = choiceOptions ?? defaults.Item3;
+                        confirmChoices = confirmChoices ?? Tuple.Create(defaults.Item1, defaults.Item2);
+                    }
+
+                    var choices = new List<Choice> { confirmChoices.Item1, confirmChoices.Item2 };
+
+                    var findChoiceOptions = new FindChoicesOptions
+                    {
+                        Locale = culture,
+                        NoIndex = choiceOptions.IncludeNumbers.GetValueOrDefault(true)
+                    };
+
+                    var secondAttemptResults = ChoiceRecognizers.RecognizeChoices(message.Text, choices, findChoiceOptions);
+                    if (secondAttemptResults.Count > 0)
+                    {
+                        result.Succeeded = true;
+                        result.Value = secondAttemptResults[0].Resolution.Index == 0;
                     }
                 }
             }
@@ -160,9 +191,10 @@ namespace Microsoft.Bot.Builder.Dialogs
 
         private string DetermineCulture(Activity activity)
         {
-            var culture = activity.Locale ?? DefaultLocale;
-            if (string.IsNullOrEmpty(culture) || !ChoiceDefaults.ContainsKey(culture))
+            var culture = (string.IsNullOrEmpty(activity.Locale) ? DefaultLocale : activity.Locale).ToLowerInvariant();
+            if (string.IsNullOrEmpty(culture) || (ConfirmChoices == null && !ChoiceDefaults.ContainsKey(culture)))
             {
+                // Fallback to English if no culture provided or there is no available confirm choices for it.
                 culture = English;
             }
 

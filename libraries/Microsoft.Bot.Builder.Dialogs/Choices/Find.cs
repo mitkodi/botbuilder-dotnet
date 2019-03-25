@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Microsoft.Bot.Builder.Dialogs.Choices
 {
@@ -99,7 +100,9 @@ namespace Microsoft.Bot.Builder.Dialogs.Choices
                 //   to re-search the string starting from the end of the previous match.
                 // - The start & end position returned for the match are token positions.
                 var startPos = 0;
-                var searchedTokens = tokenizer(entry.Value.Trim(), opt.Locale);
+                var searchedTokens = entry.Value.Split(new[] { " ", "\\s+", "\\s" }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(w => new Token { Text = w, Normalized = w.ToLower() })
+                    .ToList();
                 while (startPos < tokens.Count)
                 {
                     var match = MatchValue(tokens, maxDistance, opt, entry.Index, entry.Value, searchedTokens, startPos);
@@ -169,7 +172,7 @@ namespace Microsoft.Bot.Builder.Dialogs.Choices
         {
             for (var i = startPos; i < tokens.Count; i++)
             {
-                if (tokens[i].Normalized == token.Normalized)
+                if (Regex.Match(tokens[i].Normalized, token.Normalized).Success)
                 {
                     return i;
                 }
